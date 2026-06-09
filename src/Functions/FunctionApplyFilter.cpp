@@ -5,7 +5,9 @@
 #include <DataTypes/DataTypesNumber.h>
 #include <Functions/FunctionHelpers.h>
 #include <Functions/FunctionFactory.h>
+#include <Functions/FunctionApplyFilter.h>
 #include <Functions/IFunction.h>
+#include <Functions/IFunctionAdaptors.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/BloomFilter.h>
 #include <Processors/QueryPlan/RuntimeFilterLookup.h>
@@ -24,9 +26,14 @@ namespace ErrorCodes
 }
 
 /// Special function for JOIN runtime filtering
-/// Syntax: __applyFilter(filter_name, key)
-/// - filter_name: Internal name of runtime filter. It is built by BuildRuntimeFilterStep. String
+/// Syntax: __applyFilter(label, key)
+/// - label: a String const whose NAME and VALUE are both the STABLE structural id
+///   (`_runtime_filter_<hash>`). It exists only to carry that id into the DAG for EXPLAIN and the
+///   plan-step hash; the function ignores its value at execution.
 /// - key: Value of any type that is checked to be present in the filter.
+/// The actual RFL rendezvous key is the RANDOM `random_key` carried as instance state (set at plan
+/// build, never materialized in the plan), so the random value never enters any hash. A
+/// default-constructed instance (empty key, e.g. a deserialized plan) is inert: all rows pass.
 /// Returns false if the key should be filtered
 class FunctionApplyFilter final : public IFunction
 {
@@ -34,10 +41,21 @@ public:
     static constexpr auto name = "__applyFilter";
     static FunctionPtr create(ContextPtr) { return std::make_shared<FunctionApplyFilter>(); }
 
+    explicit FunctionApplyFilter(String random_key_ = {}) : random_key(std::move(random_key_)) {}
+
     String getName() const override { return name; }
 
     bool isVariadic() const override { return false; }
     bool isInjective(const ColumnsWithTypeAndName &) const override { return false; }
+
+    /// A runtime filter's result is not a pure function of its arguments — it depends on the
+    /// dynamically built filter, which differs between executions of the same plan (e.g. recursive
+    /// CTE iterations or materialized-view blocks). `isDeterministic() == false` keeps it out of
+    /// the query condition cache (which keys on the now-deterministic filter expression and would
+    /// otherwise serve a stale per-granule result to a later execution with different keys). We
+    /// keep `isDeterministicInScopeOfQuery() == true` so the filter can still be pushed into
+    /// PREWHERE: within a single read the built filter is fixed, so the predicate is stable there.
+    bool isDeterministic() const override { return false; }
 
     bool isSuitableForConstantFolding() const override { return false; }
     bool isSuitableForShortCircuitArgumentsExecution(const DataTypesWithConstInfo & /*arguments*/) const override { return false; }
@@ -53,7 +71,7 @@ public:
         if (!WhichDataType(arguments[0]).isString())
             throw Exception(
                     ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT,
-                    "First argument of function '{}' must be a String filter name",
+                    "First argument of function '{}' must be a String filter key",
                     getName());
 
         return std::make_shared<DataTypeUInt8>();
@@ -69,22 +87,10 @@ public:
 
     ColumnPtr executeImpl(const ColumnsWithTypeAndName & arguments, const DataTypePtr &, size_t input_rows_count) const override
     {
-        String filter_name;
-        if (const auto * filter_name_const_column = checkAndGetColumnConst<ColumnString>(arguments[0].column.get()))
-        {
-            filter_name = filter_name_const_column->getValue<String>();
-        }
-        else if (const auto * filter_name_column = dynamic_cast<const ColumnString *>(arguments[0].column.get()))
-        {
-            if (filter_name_column->size() == 1)
-                filter_name = filter_name_column->getDataAt(0);
-        }
-
-        if (filter_name.empty())
-            throw Exception(
-                    ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT,
-                    "First argument of function '{}' must be a String filter name",
-                    getName());
+        /// `random_key` is the per-plan-build RFL rendezvous key, carried as instance state (not in
+        /// the DAG). An empty key means an inert (e.g. deserialized) instance: all rows pass.
+        if (random_key.empty())
+            return DataTypeUInt8().createColumnConst(input_rows_count, true);
 
         auto query_context = CurrentThread::tryGetQueryContext();
         if (!query_context)
@@ -92,9 +98,9 @@ public:
         auto filter_lookup = query_context->getRuntimeFilterLookup();
         if (!filter_lookup)
             throw Exception(ErrorCodes::LOGICAL_ERROR, "Runtime filter lookup was not initialized");
-        auto filter = filter_lookup->find(filter_name);
 
-        /// If filter is not present all rows pass
+        /// Look up the filter by the random key; if it has not been registered/built yet, all rows pass.
+        auto filter = filter_lookup->find(random_key);
         if (!filter)
             return DataTypeUInt8().createColumnConst(input_rows_count, true);
 
@@ -102,7 +108,17 @@ public:
 
         return filter->find(data_column);
     }
+
+private:
+    /// Random per-plan-build RFL key; never appears in the plan/DAG/EXPLAIN, so it is never hashed.
+    const String random_key;
 };
+
+/// Build an `__applyFilter` overload resolver whose function instance carries `random_key` out of band.
+FunctionOverloadResolverPtr createApplyFilterOverloadResolver(String random_key)
+{
+    return std::make_shared<FunctionToOverloadResolverAdaptor>(std::make_shared<FunctionApplyFilter>(std::move(random_key)));
+}
 
 REGISTER_FUNCTION(FilterContains)
 {

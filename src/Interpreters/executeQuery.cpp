@@ -83,7 +83,6 @@
 #include <Processors/Sources/WaitForAsyncInsertSource.h>
 #include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
 #include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
-#include <Processors/QueryPlan/RuntimeFilterLookup.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
 
 #include <Common/QueryFuzzer.h>
@@ -695,8 +694,6 @@ static void logQueryFinishImpl(
                 rows_per_second,
                 ReadableSize(bytes_per_second));
         }
-
-        context->getRuntimeFilterLookup()->logStats();
 
         elem.query_result_cache_usage = query_result_cache_usage;
 
