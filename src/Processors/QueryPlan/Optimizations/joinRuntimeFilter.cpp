@@ -103,11 +103,9 @@ static String runtimeFilterName(UInt64 structural_hash)
 /// is in the plan. The random RFL key travels out of band, inside the `__applyFilter` instance.
 static const ActionsDAG::Node & addRuntimeFilterLabelColumn(ActionsDAG & actions_dag, const RuntimeFilterId & id)
 {
-    return actions_dag.addColumn(
-        ColumnWithTypeAndName(
-            DataTypeString().createColumnConst(0, id.name),
-            std::make_shared<DataTypeString>(),
-            id.name));
+    auto string_type = std::make_shared<DataTypeString>();
+    auto label_column = string_type->createColumnConst(0, id.name);
+    return actions_dag.addColumn(std::move(label_column), std::move(string_type), id.name);
 }
 
 static const ActionsDAG::Node & createRuntimeFilterCondition(

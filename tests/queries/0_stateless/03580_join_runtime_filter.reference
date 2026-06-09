@@ -2,9 +2,7 @@
 499.5
       Algorithm: HashJoin
             Algorithm: HashJoin
-                             COLUMN Const(_runtime_filter_5202705744673044068) -> _runtime_filter_5202705744673044068 RuntimeFilter : 1
                 BuildRuntimeFilter (Build runtime join filter on __table2.c_custkey)
-                               COLUMN Const(_runtime_filter_15549411809865650896) -> _runtime_filter_15549411809865650896 RuntimeFilter : 1
           BuildRuntimeFilter (Build runtime join filter on __table3.n_nationkey)
 6000
 0
@@ -20,9 +18,7 @@
 499.5
       Algorithm: ConcurrentHashJoin
             Algorithm: ConcurrentHashJoin
-                             COLUMN Const(_runtime_filter_5202705744673044068) -> _runtime_filter_5202705744673044068 RuntimeFilter : 1
                 BuildRuntimeFilter (Build runtime join filter on __table2.c_custkey)
-                               COLUMN Const(_runtime_filter_15549411809865650896) -> _runtime_filter_15549411809865650896 RuntimeFilter : 1
           BuildRuntimeFilter (Build runtime join filter on __table3.n_nationkey)
 6000
 0
@@ -38,9 +34,7 @@
 499.5
       Algorithm: GraceHashJoin
             Algorithm: GraceHashJoin
-                             COLUMN Const(_runtime_filter_5202705744673044068) -> _runtime_filter_5202705744673044068 RuntimeFilter : 1
                 BuildRuntimeFilter (Build runtime join filter on __table2.c_custkey)
-                               COLUMN Const(_runtime_filter_15549411809865650896) -> _runtime_filter_15549411809865650896 RuntimeFilter : 1
           BuildRuntimeFilter (Build runtime join filter on __table3.n_nationkey)
 6000
 0
